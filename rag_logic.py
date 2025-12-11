@@ -45,19 +45,34 @@ class RAGManager:
         logger.info(f"Initializing HuggingFaceEmbeddings with model: {self.embedding_model_name}")
         self.embeddings = HuggingFaceEmbeddings(model_name=self.embedding_model_name)
         
-        # Ensure persistence directory exists
-        if not os.path.exists(persist_directory):
-            logger.info(f"Creating persistence directory: {persist_directory}")
-            os.makedirs(persist_directory)
+        # ChromaDB configuration
+        self.persist_directory = persist_directory
+        self.collection_name = collection_name
+        
+        # Check if index exists
+        index_exists = False
+        if os.path.exists(self.persist_directory):
+            # Chroma typically has a chroma.sqlite3 file or multiple files in the directory
+            items = os.listdir(self.persist_directory)
+            if any(item.endswith('.sqlite3') or item == 'chroma.sqlite3' for item in items) or len(items) > 0:
+                index_exists = True
+        
+        if index_exists:
+            logger.info(f"Loading existing index from: {self.persist_directory}")
+        else:
+            logger.info(f"No existing index found at {self.persist_directory}. Initializing empty collection.")
             
         # Initialize Chroma vector store
         self.vector_store = Chroma(
-            persist_directory=persist_directory,
+            persist_directory=self.persist_directory,
             embedding_function=self.embeddings,
-            collection_name=collection_name
+            collection_name=self.collection_name
         )
         
-        logger.info(f"RAGManager initialized and ChromaDB persisted at: {persist_directory}")
+        if index_exists:
+            logger.info(f"RAGManager successfully loaded existing index: {self.collection_name}")
+        else:
+            logger.info(f"RAGManager initialized empty collection: {self.collection_name}")
         
         # Initialize default splitter
         self._splitter = self.get_text_splitter()
