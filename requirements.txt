@@ -10,3 +10,5 @@ pypdf==6.4.0
 unstructured==0.18.21
 python-dotenv==1.2.1
 pytest==9.0.1
+markdown==3.10
+nltk==3.9.2

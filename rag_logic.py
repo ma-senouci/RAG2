@@ -5,6 +5,12 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from langchain_community.document_loaders import (
+    DirectoryLoader,
+    PyPDFLoader,
+    TextLoader,
+    UnstructuredMarkdownLoader,
+)
 from typing import List
 
 # Configure logging
@@ -63,6 +69,7 @@ class RAGManager:
             logger.info(f"No existing index found at {self.persist_directory}. Initializing empty collection.")
             
         # Initialize Chroma vector store
+        logger.info(f"Initializing Chroma vector store at: {self.persist_directory}")
         self.vector_store = Chroma(
             persist_directory=self.persist_directory,
             embedding_function=self.embeddings,
@@ -131,3 +138,50 @@ class RAGManager:
             
         logger.info(f"Created {len(all_chunks)} chunks from {len(documents)} documents")
         return all_chunks
+
+    def discover_documents(self, directory_path: str = None) -> List[Document]:
+        """
+        Discover and load documents from a directory.
+        
+        Args:
+            directory_path (str, optional): Path to the directory. Defaults to the 'docs' folder in project root.
+            
+        Returns:
+            List[Document]: List of loaded documents.
+        """
+        if directory_path is None:
+            # Derive project root from this file's location
+            project_root = os.path.dirname(os.path.abspath(__file__))
+            directory_path = os.path.join(project_root, "docs")
+            
+        logger.info(f"Discovering documents in: {directory_path}")
+        
+        if not os.path.exists(directory_path):
+            logger.warning(f"Directory not found: {directory_path}. Returning empty list.")
+            return []
+            
+        # Loader mapping for supported file formats
+        loader_mapping = {
+            ".pdf": PyPDFLoader,
+            ".txt": TextLoader,
+            ".md": UnstructuredMarkdownLoader,
+        }
+        
+        # Iterate through supported extensions using specific loaders
+        documents = []
+        for ext, loader_cls in loader_mapping.items():
+            loader = DirectoryLoader(
+                directory_path,
+                glob=f"**/*{ext}",
+                loader_cls=loader_cls,
+                loader_kwargs={"autodetect_encoding": True} if loader_cls == TextLoader else {},
+                silent_errors=True,
+                use_multithreading=True
+            )
+            ext_docs = loader.load()
+            if ext_docs:
+                logger.info(f"Loaded {len(ext_docs)} documents with extension {ext}")
+                documents.extend(ext_docs)
+            
+        logger.info(f"Total discovered documents: {len(documents)}")
+        return documents
