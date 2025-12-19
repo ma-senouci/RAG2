@@ -207,3 +207,58 @@ def test_discover_documents_metadata(tmp_path):
     docs = manager.discover_documents(directory_path=str(docs_dir))
     assert len(docs) == 1
     assert "meta_test.txt" in docs[0].metadata["source"]
+    
+def test_index_documents_integration(tmp_path):
+    """Verify the full indexing pipeline: split -> add -> retrieve."""
+    persist_dir = str(tmp_path / "chroma_db")
+    manager = RAGManager(persist_directory=persist_dir)
+    
+    # Create sample document
+    doc = Document(page_content="Integration test for the indexing pipeline.", metadata={"source": "test.txt"})
+    
+    # Run indexing pipeline
+    result = manager.index_documents([doc])
+    
+    assert result["status"] == "success"
+    assert result["documents_processed"] == 1
+    assert result["chunks_created"] > 0
+    
+    # Verify retrieval
+    search_results = manager.vector_store.similarity_search("indexing pipeline", k=1)
+    assert len(search_results) > 0
+    assert "Integration test" in search_results[0].page_content
+    assert search_results[0].metadata["source"] == "test.txt"
+    assert "chunk_index" in search_results[0].metadata
+
+def test_incremental_indexing(tmp_path):
+    """Verify that we can add documents to an existing index without loss."""
+    persist_dir = str(tmp_path / "chroma_db")
+    manager = RAGManager(persist_directory=persist_dir)
+    
+    # 1. Index first document
+    doc1 = Document(page_content="First document content.", metadata={"source": "doc1.txt"})
+    manager.index_documents([doc1])
+    
+    # 2. Index second document
+    doc2 = Document(page_content="Second document content.", metadata={"source": "doc2.txt"})
+    manager.index_documents([doc2])
+    
+    # 3. Verify both are present
+    results = manager.vector_store.similarity_search("document", k=10)
+    sources = [res.metadata["source"] for res in results]
+    assert "doc1.txt" in sources
+    assert "doc2.txt" in sources
+
+def test_index_documents_verification_logic(tmp_path):
+    """Verify that index_documents correctly reports chunk counts and verification status."""
+    persist_dir = str(tmp_path / "chroma_db")
+    manager = RAGManager(persist_directory=persist_dir)
+    
+    doc = Document(page_content="Test document for verification.", metadata={"source": "verify.txt"})
+    result = manager.index_documents([doc])
+    
+    assert result["status"] == "success"
+    assert result["documents_processed"] == 1
+    assert result["chunks_indexed"] == result["chunks_created"]
+    assert result["chunks_indexed"] > 0
+    assert result["verification"] == "verified"

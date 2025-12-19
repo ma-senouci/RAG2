@@ -36,7 +36,7 @@ class RAGManager:
     """
     Manages the RAG pipeline components including embeddings and vector store.
     """
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", persist_directory: str = "./chroma_db", collection_name: str = "portfolio_documents"):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", persist_directory: str = "chroma_db", collection_name: str = "portfolio_documents"):
         """
         Initialize RAGManager with embedding model and ChromaDB.
         
@@ -45,15 +45,14 @@ class RAGManager:
             persist_directory (str): The directory to persist ChromaDB data.
             collection_name (str): The name of the ChromaDB collection.
         """
+        # Resolve to absolute path relative to this file for ultimate portability
+        self.persist_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), persist_directory))
+        self.collection_name = collection_name
         self.embedding_model_name = model_name
         
         # Initialize Embeddings
         logger.info(f"Initializing HuggingFaceEmbeddings with model: {self.embedding_model_name}")
         self.embeddings = HuggingFaceEmbeddings(model_name=self.embedding_model_name)
-        
-        # ChromaDB configuration
-        self.persist_directory = persist_directory
-        self.collection_name = collection_name
         
         # Check if index exists
         index_exists = False
@@ -188,3 +187,74 @@ class RAGManager:
             
         logger.info(f"Total discovered documents: {len(documents)}")
         return documents
+        
+    def index_documents(self, documents: List[Document]) -> dict:
+        """
+        Full pipeline: Split documents, add to vector store, and verify persistence.
+        
+        Args:
+            documents (List[Document]): List of documents to index.
+            
+        Returns:
+            dict: Summary of the indexing operation.
+        """
+        if not documents:
+            logger.warning("No documents provided for indexing.")
+            return {"status": "skipped", "reason": "empty_input"}
+            
+        logger.info(f"Starting indexing pipeline for {len(documents)} documents")
+        
+        try:
+            # 1. Verification Step: Check count before
+            count_before = self.vector_store._collection.count()
+            
+            # 2. Split documents
+            chunks = self.split_documents(documents)
+            logger.info(f"Split completed: {len(chunks)} chunks created from {len(documents)} documents")
+            
+            # 3. Add to vector store
+            logger.info(f"Adding {len(chunks)} chunks to Chroma collection: {self.collection_name}")
+            self.vector_store.add_documents(chunks)
+            
+            # 4. Verification Step: Verify actual count in database
+            count_after = self.vector_store._collection.count()
+            added_count = count_after - count_before
+            
+            # 4.1 Check Persistence: Prove data actually reached the disk index
+            is_persistent = count_after > count_before
+            # 4.2 Check Consistency: Compare actual items on disk vs. predicted chunks
+            is_consistent = added_count == len(chunks)
+            
+            if is_persistent and is_consistent:
+                logger.info(f"Indexing verified: {added_count} chunks successfully committed to {self.collection_name}")
+            elif is_persistent and not is_consistent:
+                logger.warning(f"Consistency Mismatch: expected {len(chunks)} chunks, but found {added_count}. Some data may be missing/merged.")
+            else:
+                logger.error(f"Persistence Failure: No new chunks were added to the index {self.collection_name}")
+                
+            return {
+                "status": "success",
+                "documents_processed": len(documents),
+                "chunks_created": len(chunks),
+                "chunks_indexed": added_count,
+                "verification": "verified" if (is_persistent and is_consistent) else "partial_or_fail"
+            }
+            
+        except Exception as e:
+            logger.error(f"Critical error during indexing pipeline: {str(e)}")
+            return {
+                "status": "error",
+                "error_message": str(e),
+                "documents_processed": 0,
+                "chunks_created": 0
+            }
+
+if __name__ == "__main__":
+    # Internal validation/smoke test
+    manager = RAGManager()
+    docs = manager.discover_documents()
+    if docs:
+        result = manager.index_documents(docs)
+        print(f"Indexing result: {result}")
+    else:
+        print("No documents found to index.")
