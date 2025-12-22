@@ -35,6 +35,34 @@ cp .env.example .env
 # Edit .env and add your OpenAI API key
 ```
 
+## Usage
+
+### 1. Synchronize Documents
+Before querying, you must populate the vector index. Keep your documents in the `docs/` folder and run:
+
+```bash
+python app.py --sync
+```
+
+This command triggers:
+- **Discovery**: Automatically finds `.pdf`, `.txt`, and `.md` files in `docs/`.
+- **Chunking**: Splits documents into manageable pieces with overlap.
+- **Indexing**: Generates embeddings and saves them to the local `chroma_db/` storage.
+
+### 2. Start Chat Interface (Coming Soon)
+The Gradio UI is currently under development. To start the interface in the future:
+
+```bash
+python app.py
+```
+
+## Configuration
+
+The system behavior can be tuned via environment variables in `.env`:
+
+- `LLM_API_KEY`: API key for your chosen provider (e.g., `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, etc.).
+- `RAG_TOP_K`: Number of relevant chunks to retrieve for each query (default: `5`).
+
 ## Project Structure
 
 ```
