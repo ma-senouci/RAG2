@@ -262,3 +262,118 @@ def test_index_documents_verification_logic(tmp_path):
     assert result["chunks_indexed"] == result["chunks_created"]
     assert result["chunks_indexed"] > 0
     assert result["verification"] == "verified"
+
+class TestRAGQuery:
+    """Tests for the query_documents method in RAGManager."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        persist_dir = str(tmp_path / "chroma_db")
+        return RAGManager(persist_directory=persist_dir)
+
+    def test_query_documents_success(self, manager, monkeypatch):
+        """Verify successful query returns List[Document] with metadata."""
+        # Create mock documents to return
+        mock_docs = [
+            Document(page_content="Result 1", metadata={"source": "doc1.txt"}),
+            Document(page_content="Result 2", metadata={"source": "doc2.txt"})
+        ]
+        
+        # Mock similarity_search on the vector store
+        def mock_search(query, k):
+            return mock_docs
+            
+        monkeypatch.setattr(manager.vector_store, "similarity_search", mock_search)
+        
+        results = manager.query_documents("test query")
+        
+        assert len(results) == 2
+        assert isinstance(results[0], Document)
+        assert results[0].page_content == "Result 1"
+        assert results[0].metadata["source"] == "doc1.txt"
+
+    def test_query_documents_top_k_param(self, manager, monkeypatch):
+        """Verify top_k parameter is passed correctly to similarity_search."""
+        captured_k = None
+        
+        def mock_search(query, k):
+            nonlocal captured_k
+            captured_k = k
+            return []
+            
+        monkeypatch.setattr(manager.vector_store, "similarity_search", mock_search)
+        
+        manager.query_documents("test query", top_k=10)
+        assert captured_k == 10
+
+    def test_query_documents_default_top_k(self, manager, monkeypatch):
+        """Verify default top_k=5 is used when not specified."""
+        captured_k = None
+        
+        def mock_search(query, k):
+            nonlocal captured_k
+            captured_k = k
+            return []
+            
+        monkeypatch.setattr(manager.vector_store, "similarity_search", mock_search)
+        
+        manager.query_documents("test query")
+        assert captured_k == 5
+
+    def test_query_documents_env_override(self, manager, monkeypatch):
+        """Verify RAG_TOP_K environment variable overrides default."""
+        monkeypatch.setenv("RAG_TOP_K", "7")
+        captured_k = None
+        
+        def mock_search(query, k):
+            nonlocal captured_k
+            captured_k = k
+            return []
+            
+        monkeypatch.setattr(manager.vector_store, "similarity_search", mock_search)
+        
+        manager.query_documents("test query")
+        assert captured_k == 7
+
+    def test_query_documents_empty_query(self, manager):
+        """Verify empty or whitespace-only query returns empty list."""
+        assert manager.query_documents("") == []
+        assert manager.query_documents("   ") == []
+        assert manager.query_documents(None) == []
+
+        # Should return empty list and not crash
+        results = manager.query_documents("test query")
+        assert results == []
+
+    def test_query_documents_integration_top_k(self, manager):
+        """Integration test verifying top_k limits results from real Chroma collection."""
+        # Create some real documents
+        docs = [
+            Document(page_content="Common theme here", metadata={"source": "doc1.txt"}),
+            Document(page_content="Common theme there", metadata={"source": "doc2.txt"}),
+            Document(page_content="Unique content", metadata={"source": "doc3.txt"})
+        ]
+        manager.index_documents(docs)
+        
+        # Test limit k=1
+        results_k1 = manager.query_documents("Common theme", top_k=1)
+        assert len(results_k1) == 1
+        
+        # Test limit k=2
+        results_k2 = manager.query_documents("Common theme", top_k=2)
+        assert len(results_k2) == 2
+
+    def test_query_documents_invalid_top_k_handling(self, manager, monkeypatch):
+        """Verify that negative or zero top_k defaults to 1."""
+        captured_k = None
+        def mock_search(query, k):
+            nonlocal captured_k
+            captured_k = k
+            return []
+        monkeypatch.setattr(manager.vector_store, "similarity_search", mock_search)
+        
+        manager.query_documents("test", top_k=0)
+        assert captured_k == 1
+        
+        manager.query_documents("test", top_k=-5)
+        assert captured_k == 1
