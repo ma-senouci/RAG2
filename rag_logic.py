@@ -28,9 +28,7 @@ logger.addHandler(console_handler)
 logger.propagate = False
 
 # Suppress noise from third-party libraries
-for name in logging.root.manager.loggerDict:
-    if not name.startswith(PROJECT_LOGGER_NAME):
-        logging.getLogger(name).setLevel(logging.WARNING)
+logging.root.setLevel(logging.WARNING)
 
 class RAGManager:
     """
