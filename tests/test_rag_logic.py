@@ -22,10 +22,12 @@ def test_persistence_directory_creation(tmp_path):
     """Verify that ChromaDB persistence directory is created"""
     persist_dir = str(tmp_path / "new_chroma_db")
     
-    # Ensure it doesn't exist
+    # Ensure directory does not exist
     assert not os.path.exists(persist_dir)
     
     manager = RAGManager(persist_directory=persist_dir) 
+    
+    # Should create directory
     assert os.path.isdir(persist_dir)
 
 def test_text_splitter_functional(tmp_path):
@@ -103,8 +105,52 @@ def test_rag_manager_graceful_missing_index(tmp_path):
     manager = RAGManager(persist_directory=persist_dir, collection_name=collection_name)
     
     # Should create directory
-    assert os.path.exists(persist_dir)
+    assert os.path.isdir(persist_dir)
     
     # Should be empty
     results = manager.vector_store.similarity_search("Anything", k=1)
     assert len(results) == 0
+    
+def test_discover_documents_mixed_types(tmp_path):
+    """Verify loading of PDF, TXT, and MD files from a directory."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    
+    # Create sample files
+    (docs_dir / "test1.txt").write_text("Text content", encoding="utf-8")
+    (docs_dir / "test2.md").write_text("# Markdown content", encoding="utf-8")
+    (docs_dir / "test3.pdf").write_text("%PDF-1.4 dummy", encoding="utf-8")
+    
+    manager = RAGManager(persist_directory=str(tmp_path / "chroma_db"))
+    docs = manager.discover_documents(directory_path=str(docs_dir))
+    
+    # test3.pdf is a dummy/invalid PDF file.
+    # Because DirectoryLoader is configured with silent_errors=True,
+    # invalid or unreadable files are skipped instead of raising exceptions.
+    # Only valid .txt and .md files are expected to be loaded reliably here.
+    filenames = [os.path.basename(doc.metadata.get("source", "")) for doc in docs]
+    assert "test1.txt" in filenames
+    assert "test2.md" in filenames
+    assert "test3.pdf" not in filenames
+
+def test_discover_documents_empty_folder(tmp_path):
+    """Verify handling of empty directories."""
+    docs_dir = tmp_path / "empty_docs"
+    docs_dir.mkdir()
+    
+    manager = RAGManager(persist_directory=str(tmp_path / "chroma_db"))
+    
+    docs = manager.discover_documents(directory_path=str(docs_dir))
+    assert len(docs) == 0
+
+def test_discover_documents_metadata(tmp_path):
+    """Verify that 'source' metadata is preserved."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "meta_test.txt").write_text("Metadata test content", encoding="utf-8")
+    
+    manager = RAGManager(persist_directory=str(tmp_path / "chroma_db"))
+    
+    docs = manager.discover_documents(directory_path=str(docs_dir))
+    assert len(docs) == 1
+    assert "meta_test.txt" in docs[0].metadata["source"]
