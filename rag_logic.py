@@ -141,13 +141,14 @@ class RAGManager:
 
     def discover_documents(self, directory_path: str = None) -> List[Document]:
         """
-        Discover and load documents from a directory.
+        Discover and load documents from a directory using format-specific loaders.
+        Supported formats: PDF, TXT, MD.
         
         Args:
             directory_path (str, optional): Path to the directory. Defaults to the 'docs' folder in project root.
             
         Returns:
-            List[Document]: List of loaded documents.
+            List[Document]: List of loaded documents with metadata preservation.
         """
         if directory_path is None:
             # Derive project root from this file's location
@@ -167,21 +168,23 @@ class RAGManager:
             ".md": UnstructuredMarkdownLoader,
         }
         
-        # Iterate through supported extensions using specific loaders
         documents = []
+        # Loop through each extension and load the matching files
         for ext, loader_cls in loader_mapping.items():
+            logger.info(f"Loading files with extension: {ext}")
             loader = DirectoryLoader(
                 directory_path,
                 glob=f"**/*{ext}",
-                loader_cls=loader_cls,
-                loader_kwargs={"autodetect_encoding": True} if loader_cls == TextLoader else {},
-                silent_errors=True,
-                use_multithreading=True
+                loader_cls=loader_cls
             )
-            ext_docs = loader.load()
-            if ext_docs:
-                logger.info(f"Loaded {len(ext_docs)} documents with extension {ext}")
-                documents.extend(ext_docs)
+            
+            try:
+                ext_docs = loader.load()
+                if ext_docs:
+                    logger.info(f"Successfully loaded {len(ext_docs)} documents with extension {ext}")
+                    documents.extend(ext_docs)
+            except Exception as e:
+                logger.error(f"Error loading documents with extension {ext}: {str(e)}")
             
         logger.info(f"Total discovered documents: {len(documents)}")
         return documents

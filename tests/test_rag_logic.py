@@ -5,6 +5,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pypdf import PdfWriter
 
 def test_rag_manager_initialization(tmp_path):
     """Verify that RAGManager initializes with correct components."""
@@ -20,7 +21,7 @@ def test_rag_manager_initialization(tmp_path):
     
 def test_persistence_directory_creation(tmp_path):
     """Verify that ChromaDB persistence directory is created"""
-    persist_dir = str(tmp_path / "new_chroma_db")
+    persist_dir = str(tmp_path / "chroma_db")
     
     # Ensure directory does not exist
     assert not os.path.exists(persist_dir)
@@ -96,7 +97,7 @@ def test_rag_manager_persistence_loading(tmp_path):
 
 def test_rag_manager_graceful_missing_index(tmp_path):
     """Verify RAGManager initializes an empty collection when no index exists."""
-    persist_dir = str(tmp_path / "missing_db")
+    persist_dir = str(tmp_path / "chroma_db")
     collection_name = "test_missing"
     
     # Ensure directory does not exist
@@ -119,19 +120,71 @@ def test_discover_documents_mixed_types(tmp_path):
     # Create sample files
     (docs_dir / "test1.txt").write_text("Text content", encoding="utf-8")
     (docs_dir / "test2.md").write_text("# Markdown content", encoding="utf-8")
-    (docs_dir / "test3.pdf").write_text("%PDF-1.4 dummy", encoding="utf-8")
+    
+    # Simple 1-page PDF
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    with open(docs_dir / "test3.pdf", "wb") as f:
+        writer.write(f)
+    
+    manager = RAGManager(persist_directory=str(tmp_path / "chroma_db"))
+    docs = manager.discover_documents(directory_path=str(docs_dir))
+    filenames = [os.path.basename(doc.metadata.get("source", "")) for doc in docs]
+    assert "test1.txt" in filenames
+    assert "test2.md" in filenames
+    assert "test3.pdf" in filenames
+
+
+def test_pdf_multipage_ingestion(tmp_path):
+    """Verify that multi-page PDFs are handled correctly (resolving false claim)."""
+    docs_dir = tmp_path / "docs_multipage"
+    docs_dir.mkdir()
+    
+    # Simple 2-page PDF
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.add_blank_page(width=612, height=792)
+    with open(docs_dir / "multipage.pdf", "wb") as f:
+        writer.write(f)
     
     manager = RAGManager(persist_directory=str(tmp_path / "chroma_db"))
     docs = manager.discover_documents(directory_path=str(docs_dir))
     
-    # test3.pdf is a dummy/invalid PDF file.
-    # Because DirectoryLoader is configured with silent_errors=True,
-    # invalid or unreadable files are skipped instead of raising exceptions.
-    # Only valid .txt and .md files are expected to be loaded reliably here.
-    filenames = [os.path.basename(doc.metadata.get("source", "")) for doc in docs]
-    assert "test1.txt" in filenames
-    assert "test2.md" in filenames
-    assert "test3.pdf" not in filenames
+    # Verify that we get 2 separate document objects (one per page)
+    # This proves the loader is initialized correctly for multi-page extraction
+    pdf_docs = [d for d in docs if "multipage.pdf" in d.metadata.get("source", "")]
+    assert len(pdf_docs) == 2, f"Expected 2 pages, found {len(pdf_docs)}"
+    assert pdf_docs[0].metadata.get("page") == 0
+    assert pdf_docs[1].metadata.get("page") == 1
+
+def test_md_ingestion_content(tmp_path):
+    """Verify content extraction and header handling from a markdown file."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    md_content = "# Header 1\n\nThis is a test.\n\n## Header 2\n\n- Item 1\n- Item 2"
+    (docs_dir / "sample.md").write_text(md_content, encoding="utf-8")
+    
+    manager = RAGManager(persist_directory=str(tmp_path / "chroma_db"))
+    docs = manager.discover_documents(directory_path=str(docs_dir))
+    
+    md_docs = [d for d in docs if d.metadata["source"].endswith(".md")]
+    assert len(md_docs) > 0
+    assert "Header 1" in md_docs[0].page_content
+    assert "Item 1" in md_docs[0].page_content
+
+def test_txt_ingestion_content(tmp_path):
+    """Verify content extraction from a text file."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    txt_content = "Plain text content for testing multi-format ingestion. "
+    (docs_dir / "sample.txt").write_text(txt_content, encoding="utf-8") # Test encoding detection
+    
+    manager = RAGManager(persist_directory=str(tmp_path / "chroma_db"))
+    docs = manager.discover_documents(directory_path=str(docs_dir))
+    
+    txt_docs = [d for d in docs if d.metadata["source"].endswith(".txt")]
+    assert len(txt_docs) > 0
+    assert "Plain text content" in txt_docs[0].page_content
 
 def test_discover_documents_empty_folder(tmp_path):
     """Verify handling of empty directories."""
