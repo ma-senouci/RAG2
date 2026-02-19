@@ -69,10 +69,12 @@ class RAGManager:
             
         # Initialize Chroma vector store
         logger.info(f"Initializing Chroma vector store at: {self.persist_directory}")
+        # Explicitly use cosine similarity
         self.vector_store = Chroma(
             persist_directory=self.persist_directory,
             embedding_function=self.embeddings,
-            collection_name=self.collection_name
+            collection_name=self.collection_name,
+            collection_metadata={"hnsw:space": "cosine"}
         )
         
         if index_exists:
@@ -187,6 +189,46 @@ class RAGManager:
             
         logger.info(f"Total discovered documents: {len(documents)}")
         return documents
+
+    def query_documents(self, query: str, top_k: int = None) -> List[Document]:
+        """
+        Perform semantic similarity search against the vector store.
+        
+        Args:
+            query (str): The natural language query string.
+            top_k (int, optional): Number of results to return. Defaults to RAG_TOP_K env var or 5.
+            
+        Returns:
+            List[Document]: List of relevant document chunks.
+        """
+        # Guard against empty/whitespace query
+        if not query or not query.strip():
+            logger.warning("Received empty or whitespace query. Returning empty list.")
+            return []
+
+        # Resolve top_k: Param > Env Var > Default(5)
+        if top_k is None:
+            env_top_k = os.environ.get("RAG_TOP_K", "5")
+            try:
+                top_k = int(env_top_k)
+            except ValueError:
+                top_k = 5
+            
+        # Validation: ensure top_k is positive
+        if top_k <= 0:
+            logger.warning(f"Requested invalid top_k={top_k}. Defaulting to 1.")
+            top_k = 1
+
+        logger.info(f"Executing semantic search for query: '{query[:100]}...' with top_k={top_k}")
+        
+        try:
+            # Perform similarity search
+            results = self.vector_store.similarity_search(query, k=top_k)
+            logger.info(f"Search returned {len(results)} results")
+            return results
+        except Exception as e:
+            logger.error(f"Critical error during similarity search: {str(e)}")
+            return []
         
     def index_documents(self, documents: List[Document]) -> dict:
         """
