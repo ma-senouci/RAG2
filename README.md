@@ -4,6 +4,9 @@ A production-ready **Retrieval-Augmented Generation** system that lets users int
 
 > Ask questions grounded in your document collection — every answer is backed by verifiable evidence from your uploaded source material.
 
+While this demo uses `mysummary.txt` to simulate a personal creator profile, the system is production-ready and can ingest any collection of PDF, TXT, and Markdown files for versatile, document-grounded Q&A.
+
+
 ## ✨ Key Features
 
 - **Semantic Search** — Queries are matched against document embeddings using cosine similarity, not keyword matching

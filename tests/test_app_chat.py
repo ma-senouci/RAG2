@@ -27,7 +27,7 @@ def test_format_context(me):
     ]
     formatted = me.format_context(chunks)
     
-    assert "Here is relevant context from Senouci's portfolio documents:" in formatted
+    assert "Here is relevant context from Mohamed Abdelkrim SENOUCI's portfolio documents:" in formatted
     assert "[Source: cv.pdf]" in formatted
     assert "I am a Python expert." in formatted
     assert "[Source: projects.md]" in formatted

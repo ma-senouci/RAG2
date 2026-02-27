@@ -81,7 +81,7 @@ tools = [
 ]
 
 class Me:
-    """Class representing Senouci's persona with RAG and Tool-calling capabilities."""
+    """Class representing the user's persona with RAG and Tool-calling capabilities."""
     
     def __init__(self):
         self.name = "Mohamed Abdelkrim SENOUCI"
@@ -96,13 +96,12 @@ class Me:
         if not chunks:
             return ""
         
-        context_parts = ["Here is relevant context from Senouci's portfolio documents:\n"]
+        context_parts = [f"Here is relevant context from {self.name}'s portfolio documents:\n"]
         for chunk in chunks:
             source = chunk.metadata.get("source", "Unknown Source")
-            # Clearer source presentation
             context_parts.append(f"[Source: {os.path.basename(source)}]")
             context_parts.append(chunk.page_content)
-            context_parts.append("") # Spacer
+            context_parts.append("")
             
         return "\n".join(context_parts)
 
@@ -222,7 +221,38 @@ def main():
     else:
         logger.info("Launching portfolio chat interface...")
         me = Me()
-        gr.ChatInterface(me.chat).launch()
+
+        custom_css = """
+        .gradio-container { max-width: 800px !important; }
+        h1 { color: #4f46e5 !important; font-weight: 700 !important; text-align: center !important; }
+        .description { color: #64748b !important; font-size: 1.05rem !important; text-align: center !important; }
+        """
+
+        interface = gr.ChatInterface(
+            fn=me.chat,
+            title=f"💬 Chat with {me.name}",
+            description="Ask me about my experience, research, projects, or background. I'm powered by RAG — every answer is grounded in real portfolio data.",
+            textbox=gr.Textbox(placeholder="Type your question here...", submit_btn=True),
+            examples=[
+                "Tell me about your experience with AI.",
+                "What projects have you worked on?",
+                "How can I contact you?"
+            ],
+        )
+        # Provide a clear, clickable localhost URL to avoid confusion with the 0.0.0.0 log
+        logger.info("-" * 50)
+        logger.info("URL: http://localhost:7860")
+        logger.info("-" * 50)
+
+        interface.launch(
+            server_name="0.0.0.0",
+            theme=gr.themes.Glass(
+                primary_hue="indigo",
+                secondary_hue="slate",
+                font=gr.themes.GoogleFont("Outfit")
+            ),
+            css=custom_css,
+        )
 
 if __name__ == "__main__":
     main()
