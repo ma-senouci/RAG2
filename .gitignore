@@ -9,8 +9,3 @@ __pycache__/
 venv/
 env/
 .env
-
-# ChromaDB
-chroma_db/
-
-

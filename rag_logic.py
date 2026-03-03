@@ -206,7 +206,7 @@ class RAGManager:
 
         # Resolve top_k: Param > Env Var > Default(5)
         if top_k is None:
-            env_top_k = os.environ.get("RAG_TOP_K", "5")
+            env_top_k = os.getenv("RAG_TOP_K", "5")
             try:
                 top_k = int(env_top_k)
             except ValueError:

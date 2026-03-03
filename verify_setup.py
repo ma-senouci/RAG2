@@ -1,19 +1,22 @@
 import sys
-import subprocess
 
 required_packages = [
     "langchain",
     "langchain-community",
     "langchain-openai",
+    "langchain-huggingface",
+    "langchain-chroma",
     "chromadb",
     "sentence-transformers",
-    "langchain-huggingface",
     "gradio",
+    "openai",
     "pypdf",
     "unstructured",
     "python-dotenv",
-    "openai",
-    "pytest"
+    "markdown",
+    "nltk",
+    "pytest",
+    "requests"
 ]
 
 def verify_imports():
@@ -31,6 +34,8 @@ def verify_imports():
                 import langchain_openai
             elif package == "langchain-huggingface":
                 import langchain_huggingface
+            elif package == "langchain-chroma":
+                import langchain_chroma
             elif package == "sentence-transformers":
                 import sentence_transformers
             else:
