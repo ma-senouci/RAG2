@@ -5,8 +5,8 @@ import json
 import requests
 import gradio as gr
 from dotenv import load_dotenv
-from openai import OpenAI
 from rag_logic import RAGManager, logger
+from llm_factory import get_llm
 
 load_dotenv(override=True)
 
@@ -85,11 +85,17 @@ class Me:
     
     def __init__(self):
         self.name = "Mohamed Abdelkrim SENOUCI"
-        self.deepseek = OpenAI(
-            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-            api_key=os.getenv("DEEPSEEK_API_KEY")
-        )
-        self.rag = RAGManager()
+        # Factory-based LLM instantiation (defaulting to DeepSeek via environment)
+        try:
+            self.llm_client, self.model_name = get_llm()
+            logger.info(f"LLM initialized: {self.model_name} (via {os.getenv('LLM_BACKEND', 'deepseek')})")
+            
+            # Initialize RAG
+            self.rag = RAGManager()
+        except Exception as e:
+            logger.error(f"Configuration or Initialization Error: {e}")
+            logger.error("Please check your .env file.")
+            sys.exit(1)
 
     def format_context(self, chunks):
         """Format retrieved chunks into a cited context block."""
@@ -146,7 +152,7 @@ class Me:
         return results
 
     def chat(self, message, history):
-        """Main chat orchestration loop: RAG -> Prompt -> LLM (with tool loop)."""
+        """Orchestrate RAG retrieval and streaming LLM response."""
         logger.info(f"Processing message: {message[:50]}...")
         
         # 1. Retrieve relevant portfolio chunks via semantic search
@@ -165,29 +171,94 @@ class Me:
 
         # 3. Generate response via LLM, resolving any tool calls before final reply
         try:
-            done = False
+            full_response = ""
             max_turns = 10
             turns = 0
-            while not done and turns < max_turns:
-                turns += 1
-                response = self.deepseek.chat.completions.create(
-                    model="deepseek-chat",
+            
+            while turns < max_turns:
+                stream = self.llm_client.chat.completions.create(
+                    model=self.model_name,
                     messages=messages,
-                    tools=tools
+                    tools=tools,
+                    stream=True
                 )
                 
-                msg = response.choices[0].message
-                if msg.tool_calls:
-                    tool_results = self.handle_tool_call(msg.tool_calls)
-                    messages.append(msg)
+                tool_calls = []
+                content_yielded = False
+                
+                for chunk in stream:
+                    delta = chunk.choices[0].delta
+                    
+                    # Handle content streaming
+                    if delta.content:
+                        full_response += delta.content
+                        content_yielded = True
+                        yield full_response
+                        
+                    # Buffer tool calls (reassemble from fragments)
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            if len(tool_calls) <= tc_delta.index:
+                                tool_calls.append({
+                                    "id": tc_delta.id,
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""}
+                                })
+                            
+                            if tc_delta.id:
+                                tool_calls[tc_delta.index]["id"] = tc_delta.id
+                            if tc_delta.function.name:
+                                tool_calls[tc_delta.index]["function"]["name"] += tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tool_calls[tc_delta.index]["function"]["arguments"] += tc_delta.function.arguments
+
+                if tool_calls:
+                    # Compatibility bridge: wrap dicts into Mock objects for handle_tool_call
+                    class MockFunction:
+                        def __init__(self, name, arguments):
+                            self.name = name
+                            self.arguments = arguments
+                    class MockToolCall:
+                        def __init__(self, id, function):
+                            self.id = id
+                            self.function = function
+                    
+                    formatted_tool_calls = [
+                        MockToolCall(tc["id"], MockFunction(tc["function"]["name"], tc["function"]["arguments"]))
+                        for tc in tool_calls
+                    ]
+                    
+                    tool_results = self.handle_tool_call(formatted_tool_calls)
+                    
+                    # Append the assistant message with tool calls
+                    messages.append({
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": tc["function"]["name"],
+                                    "arguments": tc["function"]["arguments"]
+                                }
+                            } for tc in tool_calls
+                        ]
+                    })
                     messages.extend(tool_results)
+                    # Loop continues for next turn
                 else:
-                    done = True
-            
-            return msg.content
+                    # No tool calls, we are done
+                    break
+                
+                turns += 1
+                    
+            if not full_response and not content_yielded:
+                 yield "I'm sorry, I couldn't generate a response."
+
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
-            return "I apologize, but I'm having trouble connecting to my brain right now. Please try again in a moment."
+            yield "I apologize, but I'm having trouble connecting to my brain right now. Please try again in a moment."
 
 def main():
     parser = argparse.ArgumentParser(description="RAG2 Application")
@@ -223,15 +294,15 @@ def main():
         me = Me()
 
         custom_css = """
-        .gradio-container { max-width: 800px !important; }
-        h1 { color: #4f46e5 !important; font-weight: 700 !important; text-align: center !important; }
+        .gradio-container { max-width: 850px !important; margin: auto !important; }
+        h1 { color: #0f172a !important; font-weight: 700 !important; text-align: center !important; letter-spacing: -0.5px; }
         .description { color: #64748b !important; font-size: 1.05rem !important; text-align: center !important; }
         """
 
         interface = gr.ChatInterface(
             fn=me.chat,
             title=f"💬 Chat with {me.name}",
-            description="Ask me about my experience, research, projects, or background. I'm powered by RAG — every answer is grounded in real portfolio data.",
+            description="Ask me about my experience, projects, or background — answers grounded in real portfolio data.",
             textbox=gr.Textbox(placeholder="Type your question here...", submit_btn=True),
             examples=[
                 "Tell me about your experience with AI.",
@@ -239,15 +310,9 @@ def main():
                 "How can I contact you?"
             ],
         )
-        # Provide a clear, clickable localhost URL to avoid confusion with the 0.0.0.0 log
-        logger.info("-" * 50)
-        logger.info("URL: http://localhost:7860")
-        logger.info("-" * 50)
-
         interface.launch(
-            server_name="0.0.0.0",
             theme=gr.themes.Glass(
-                primary_hue="indigo",
+                primary_hue="slate",
                 secondary_hue="slate",
                 font=gr.themes.GoogleFont("Outfit")
             ),

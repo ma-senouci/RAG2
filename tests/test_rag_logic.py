@@ -7,7 +7,6 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfWriter
 
-
 def test_rag_manager_initialization(tmp_path):
     """Verify that RAGManager initializes with correct components."""
     persist_dir = str(tmp_path / "chroma_db")

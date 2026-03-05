@@ -1,7 +1,6 @@
 import subprocess
 import sys
 
-
 def test_cli_sync_flag_exists():
     """Verify that the --sync flag is accepted and produces a sync summary."""
     result = subprocess.run(
